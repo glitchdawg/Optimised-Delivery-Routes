@@ -80,40 +80,62 @@ func GetAgentPayout(c *gin.Context) {
 }
 
 func AddAgent(c *gin.Context) {
-    var input struct {
-        Name        string `json:"name"`
-        WarehouseID int    `json:"warehouse_id"`
-    }
+	var input struct {
+		Name        string  `json:"name"`
+		WarehouseID int     `json:"warehouse_id"`
+		// Latitude    float64 `json:"latitude" binding:"required"`
+		// Longitude   float64 `json:"longitude" binding:"required"`
+	}
 
-    if err := c.ShouldBindJSON(&input); err != nil {
-        c.JSON(400, gin.H{"error": err.Error()})
-        return
-    }
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 
-    _, err := db.DB.Exec(`INSERT INTO agents (name, warehouse_id, checked_in_at) VALUES ($1, $2, CURRENT_TIMESTAMP)`,
-        input.Name, input.WarehouseID)
-    if err != nil {
-        c.JSON(500, gin.H{"error": err.Error()})
-        return
-    }
+	_, err := db.DB.Exec(`INSERT INTO agents (name, warehouse_id, checked_in_at) VALUES ($1, $2, CURRENT_TIMESTAMP)`,
+		input.Name, input.WarehouseID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
 
-    c.JSON(200, gin.H{"message": "agent added ✅"})
+	c.JSON(200, gin.H{"message": "agent added ✅"})
 }
 
 func GetWarehouses(c *gin.Context) {
-    rows, err := db.DB.Query(`SELECT id, name, lat, lon FROM warehouses`)
-    if err != nil {
-        c.JSON(500, gin.H{"error": err.Error()})
-        return
-    }
+	rows, err := db.DB.Query(`SELECT id, name, lat, lon FROM warehouses`)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
 
-    var warehouses []models.Warehouse
-    for rows.Next() {
-        var w models.Warehouse
-        rows.Scan(&w.ID, &w.Name, &w.Lat, &w.Lon)
-        warehouses = append(warehouses, w)
-    }
+	var warehouses []models.Warehouse
+	for rows.Next() {
+		var w models.Warehouse
+		rows.Scan(&w.ID, &w.Name, &w.Lat, &w.Lon)
+		warehouses = append(warehouses, w)
+	}
 
-    c.JSON(200, warehouses)
+	c.JSON(200, warehouses)
 }
 
+func AddWarehouse(c *gin.Context) {
+	var input struct {
+		Name string  `json:"name" binding:"required"`
+		Lat  float64 `json:"lat" binding:"required"`
+		Lon  float64 `json:"lon" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err := db.DB.Exec(`INSERT INTO warehouses (name, lat, lon) VALUES ($1, $2, $3)`, input.Name, input.Lat, input.Lon)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "warehouse created ✅"})
+}
