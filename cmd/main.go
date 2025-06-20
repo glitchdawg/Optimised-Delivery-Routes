@@ -16,11 +16,14 @@ func main() {
 
 	r := gin.Default()
 
-	// API Routes
 	r.GET("/agents", handlers.GetAgents)
 	r.GET("/agents/:id/orders", handlers.GetAgentOrders)
 	r.GET("/agents/:id/payout", handlers.GetAgentPayout)
 	r.POST("/allocate", handlers.TriggerAllocation)
+	r.POST("/agents", handlers.AddAgent)
+	r.GET("/warehouses", handlers.GetWarehouses)
+
+
 
 	r.Run(":8080")
 }
