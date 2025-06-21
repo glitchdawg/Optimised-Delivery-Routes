@@ -65,7 +65,7 @@ A full-stack delivery management system built with Go (Gin) for the backend and 
 Developed in Go using the Gin web framework. .
 
 **Frontend**:
-Built with Vue.js and Vite for a fast, reactive user interface.
+Built with Vue.js and Vite for a fast, reactive user interface. Leaflet for handling map renders and axios as the browser HTTP client.
 
 **Database**:
 PostgreSQL is used as the relational database, storing all core data such as users, deliveries, and statuses.
@@ -80,7 +80,21 @@ we can use the `place warehouse on map` and `place order on map` to put warehous
 
 **Algorithm**
 The backend uses a modified **round-robin algorithm** for even allotment of orders to agents, minimising the cost incurred.
+
+**Key Characteristics:**
+
+- Cycles through agents in sequence: Agent1 → Agent2 → Agent3 → Agent1 → ...
+- Fair distribution - each agent gets equal opportunity
+- Good for workload balance
+
+
 Alternatively I have also written a **least loaded algorithm** that we can switch to, for better individual utilisation of agents.
+
+**Key Characteristics:**
+
+Always prioritizes agent with fewest current orders
+Maximizes individual agent utilization
+Better for reaching higher payout tiers (25+, 50+ orders)
 
 ## Testing
 
