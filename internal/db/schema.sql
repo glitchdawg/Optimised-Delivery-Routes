@@ -34,15 +34,3 @@ CREATE TABLE agent_assignments (
     distance_km DOUBLE PRECISION,
     estimated_time_minutes INTEGER
 );
-
--- Agent Payouts
-CREATE TABLE IF NOT EXISTS agent_payouts (
-    id SERIAL PRIMARY KEY,
-    agent_id INTEGER NOT NULL REFERENCES agents(id),
-    date DATE NOT NULL,
-    total_orders INTEGER NOT NULL,
-    total_distance DOUBLE PRECISION NOT NULL,
-    total_pay DOUBLE PRECISION NOT NULL,
-    CONSTRAINT unique_agent_date UNIQUE (agent_id, date)
-);
-

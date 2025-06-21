@@ -7,10 +7,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glitchdawg/Optimised-Delivery-Routes/internal/db"
 	"github.com/glitchdawg/Optimised-Delivery-Routes/internal/handlers"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	err := db.InitDB()
+
+	err := godotenv.Load()
+    if err != nil {
+        log.Fatal("Error loading .env file")
+    }
+	err = db.InitDB()
 	if err != nil {
 		log.Fatalf("DB init failed: %v", err)
 	}
