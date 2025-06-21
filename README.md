@@ -79,7 +79,9 @@ we can use the `place warehouse on map` and `place order on map` to put warehous
 ![alt text](images/image-2.png)
 
 ## **Algorithm**
-The backend uses a modified **round-robin algorithm** for even allotment of orders to agents, minimising the cost incurred.
+We have the Haversine distanc to calculate the distance from the warehouses to the orders.
+
+The backend uses a modified **round-robin algorithm** for even allotment of orders to agents, minimising the cost incurred. The Haversine distance between each warehouse is calculated alloted to the nearest warehouse
 
 **Key Characteristics:**
 
