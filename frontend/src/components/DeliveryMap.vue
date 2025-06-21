@@ -20,6 +20,7 @@
       <input v-model.number="newWarehouse.lon" placeholder="Longitude" required type="number" step="any" />
       <button type="submit">Add Warehouse</button>
     </form>
+    
 
     <!-- Agent Creation Form -->
     <form @submit.prevent="createAgent" style="margin-bottom: 1em;">
@@ -47,6 +48,21 @@
 
     <div id="map" style="height: 500px; margin-bottom: 2em;"></div>
 
+    <!-- Metrics Section -->
+    <div style="margin-bottom: 2em;">
+      <h3>Metrics</h3>
+      <ul>
+        <li>Total Warehouses: {{ warehouses.length }}</li>
+        <li>Total Agents: {{ agents.length }}</li>
+        <li>Total Orders: {{ orders.length }}</li>
+        <li>Assigned Orders: {{ assignedOrdersCount }}</li>
+        <li>Unassigned Orders: {{ unassignedOrdersCount }}</li>
+        <li>Average Orders per Agent: {{ avgOrdersPerAgent }}</li>
+        <li>Average Distance per Agent: {{ avgDistancePerAgent.toFixed(2) }} km</li>
+        <li>Total Cost Today: ₹{{ totalCost }}</li>
+      </ul>
+    </div>
+
     <!-- Agents Table -->
     <div>
       <h3>Agents</h3>
@@ -55,6 +71,8 @@
           <tr>
             <th>Name</th>
             <th>Assigned Warehouse</th>
+            <th>Orders Assigned</th>
+            <th>Total Distance (km)</th>
             <th>Payout</th>
           </tr>
         </thead>
@@ -68,6 +86,8 @@
                   : 'Unassigned'
               }}
             </td>
+            <td>{{ agentOrders[agent.id]?.length || 0 }}</td>
+            <td>{{ agentDistances[agent.id]?.toFixed(2) || 0 }}</td>
             <td>
               <span v-if="payouts[agent.id] !== undefined">₹{{ payouts[agent.id] }}</span>
               <span v-else>₹0</span>
@@ -76,11 +96,36 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Orders Table -->
+    <div style="margin-top:2em;">
+      <h3>Orders</h3>
+      <table border="1" cellpadding="5" style="width:100%; text-align:left;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Warehouse</th>
+            <th>Address</th>
+            <th>Assigned</th>
+            <th>Agent</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="o in orders" :key="o.id">
+            <td>{{ o.id }}</td>
+            <td>{{ warehouses.find(w => w.id === o.warehouse_id)?.name || o.warehouse_id }}</td>
+            <td>{{ o.delivery_address }}</td>
+            <td>{{ o.assigned ? 'Yes' : 'No' }}</td>
+            <td>{{ agentNameById(o.agent_id) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, computed } from 'vue'
 import L from 'leaflet'
 import axios from 'axios'
 
@@ -88,6 +133,8 @@ const warehouses = ref([])
 const agents = ref([])
 const orders = ref([])
 const payouts = ref({}) // { agentId: payout }
+const agentOrders = ref({}) // { agentId: [orders] }
+const agentDistances = ref({}) // { agentId: totalDistance }
 let map
 
 const placementMode = ref(null)
@@ -95,6 +142,21 @@ const placementMode = ref(null)
 const newWarehouse = ref({ name: '', lat: '', lon: '' })
 const newAgent = ref({ name: '', warehouse_id: '' })
 const newOrder = ref({ warehouse_id: '', delivery_address: '', lat: '', lon: '' })
+
+const assignedOrdersCount = computed(() => orders.value.filter(o => o.assigned).length)
+const unassignedOrdersCount = computed(() => orders.value.filter(o => !o.assigned).length)
+const avgOrdersPerAgent = computed(() => agents.value.length ? (assignedOrdersCount.value / agents.value.length).toFixed(2) : 0)
+const avgDistancePerAgent = computed(() => {
+  const total = Object.values(agentDistances.value).reduce((a, b) => a + b, 0)
+  return agents.value.length ? total / agents.value.length : 0
+})
+const totalCost = computed(() => Object.values(payouts.value).reduce((a, b) => a + b, 0))
+
+const agentNameById = (id) => {
+  if (!id) return ''
+  const agent = agents.value.find(a => a.id === id)
+  return agent ? agent.name : id
+}
 
 const initMap = async () => {
   await nextTick()
@@ -149,8 +211,8 @@ const fetchAll = async () => {
     warehouses.value = (await axios.get('/warehouses')).data
     agents.value = (await axios.get('/agents')).data
     orders.value = (await axios.get('/orders')).data
-    // Reset payouts
-    payouts.value = {}
+    await fetchAgentOrdersAndDistances()
+    await fetchAllPayouts()
   } catch (e) {
     console.error(e)
   }
@@ -160,7 +222,6 @@ const fetchAll = async () => {
 const allocateOrders = async () => {
   await axios.post('/allocate')
   await fetchAll()
-  await fetchAllPayouts()
 }
 
 const fetchAllPayouts = async () => {
@@ -174,6 +235,30 @@ const fetchAllPayouts = async () => {
     }
   }
   payouts.value = payoutMap
+}
+
+const fetchAgentOrdersAndDistances = async () => {
+  const ordersMap = {}
+  const distancesMap = {}
+  for (const agent of agents.value) {
+    try {
+      const agentOrdersRes = await axios.get(`/agents/${agent.id}/orders`)
+      ordersMap[agent.id] = agentOrdersRes.data || []
+      // Calculate total distance for agent
+      let totalDist = 0
+      for (const o of agentOrdersRes.data) {
+        if (o.distance_km) {
+          totalDist += o.distance_km
+        }
+      }
+      distancesMap[agent.id] = totalDist
+    } catch {
+      ordersMap[agent.id] = []
+      distancesMap[agent.id] = 0
+    }
+  }
+  agentOrders.value = ordersMap
+  agentDistances.value = distancesMap
 }
 
 const createWarehouse = async () => {

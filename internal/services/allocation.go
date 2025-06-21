@@ -3,6 +3,7 @@ package services
 import (
 	"math"
 	"sort"
+	"time"
 
 	"github.com/glitchdawg/Optimised-Delivery-Routes/internal/db"
 	"github.com/glitchdawg/Optimised-Delivery-Routes/internal/models"
@@ -14,14 +15,44 @@ const (
 	AvgSpeedKMPerMin = 0.2 // 1 km in 5 min = 0.2 km/min
 )
 
+// OptimizeRoute uses nearest neighbor to optimize the order of deliveries for an agent
+func OptimizeRoute(warehouse models.Warehouse, orders []models.Order) []models.Order {
+	if len(orders) == 0 {
+		return orders
+	}
+	visited := make([]bool, len(orders))
+	route := make([]models.Order, 0, len(orders))
+	currLat, currLon := warehouse.Lat, warehouse.Lon
+
+	for range orders {
+		minDist := math.MaxFloat64
+		nextIdx := -1
+		for i, o := range orders {
+			if visited[i] {
+				continue
+			}
+			d := haversine(currLat, currLon, o.Lat, o.Lon)
+			if d < minDist {
+				minDist = d
+				nextIdx = i
+			}
+		}
+		if nextIdx == -1 {
+			break
+		}
+		visited[nextIdx] = true
+		route = append(route, orders[nextIdx])
+		currLat, currLon = orders[nextIdx].Lat, orders[nextIdx].Lon
+	}
+	return route
+}
+
 func AllocateOrdersForWarehouse(warehouse models.Warehouse) error {
-	
 	agents, err := fetchCheckedInAgents(warehouse.ID)
 	if err != nil {
 		return err
 	}
 
-	
 	orders, err := fetchUnassignedOrders(warehouse.ID)
 	if err != nil {
 		return err
@@ -36,6 +67,7 @@ func AllocateOrdersForWarehouse(warehouse models.Warehouse) error {
 	sortOrdersByDistance(&orders)
 
 	currOrder := 0
+	unassignedOrders := make([]int, 0)
 	for _, agent := range agents {
 		var usedKM float64
 		var usedMinutes int
@@ -59,7 +91,23 @@ func AllocateOrdersForWarehouse(warehouse models.Warehouse) error {
 			currOrder++
 		}
 
+		// Route optimization for assigned orders
+		assigned = OptimizeRoute(warehouse, assigned)
+
 		err := saveAssignments(agent.ID, assigned)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Capacity handling: postpone unassigned orders to next day
+	for i := range orders {
+		if !orders[i].Assigned {
+			unassignedOrders = append(unassignedOrders, orders[i].ID)
+		}
+	}
+	if len(unassignedOrders) > 0 {
+		err := postponeOrdersToNextDay(unassignedOrders)
 		if err != nil {
 			return err
 		}
@@ -69,7 +117,7 @@ func AllocateOrdersForWarehouse(warehouse models.Warehouse) error {
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
-	const R = 6371 
+	const R = 6371
 	dLat := (lat2 - lat1) * math.Pi / 180.0
 	dLon := (lon2 - lon1) * math.Pi / 180.0
 
@@ -80,6 +128,7 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return R * c
 }
+
 func fetchCheckedInAgents(warehouseID int) ([]models.Agent, error) {
 	rows, err := db.DB.Query(`
         SELECT id, name, warehouse_id, checked_in_at
@@ -101,6 +150,7 @@ func fetchCheckedInAgents(warehouseID int) ([]models.Agent, error) {
 	}
 	return agents, nil
 }
+
 func fetchUnassignedOrders(warehouseID int) ([]models.Order, error) {
 	rows, err := db.DB.Query(`
         SELECT id, warehouse_id, lat, lon, delivery_address, scheduled_for, assigned
@@ -130,41 +180,68 @@ func sortOrdersByDistance(orders *[]models.Order) {
 }
 
 func saveAssignments(agentID int, orders []models.Order) error {
-    tx, err := db.DB.Begin()
-    if err != nil {
-        return err
-    }
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
 
-    stmt, err := tx.Prepare(`
-        INSERT INTO agent_assignments (agent_id, order_id, assigned_on, distance_km, estimated_time_minutes)
-        VALUES ($1, $2, CURRENT_DATE, $3, $4)
+	stmt, err := tx.Prepare(`
+        INSERT INTO agent_assignments (agent_id, order_id, assigned_on, distance_km, estimated_time_minutes, sequence_number)
+        VALUES ($1, $2, CURRENT_DATE, $3, $4, $5)
     `)
-    if err != nil {
-        tx.Rollback()
-        return err
-    }
-    defer stmt.Close()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
 
-    updateStmt, err := tx.Prepare(`UPDATE orders SET assigned = true WHERE id = $1`)
-    if err != nil {
-        tx.Rollback()
-        return err
-    }
-    defer updateStmt.Close()
+	updateStmt, err := tx.Prepare(`UPDATE orders SET assigned = true, agent_id = $2 WHERE id = $1`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer updateStmt.Close()
 
-    for _, order := range orders {
-        _, err := stmt.Exec(agentID, order.ID, order.DistanceKM, order.EstimatedTimeMinutes)
-        if err != nil {
-            tx.Rollback()
-            return err
-        }
+	for seq, order := range orders {
+		_, err := stmt.Exec(agentID, order.ID, order.DistanceKM, order.EstimatedTimeMinutes, seq+1)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
 
-        _, err = updateStmt.Exec(order.ID)
-        if err != nil {
-            tx.Rollback()
-            return err
-        }
-    }
+		_, err = updateStmt.Exec(order.ID, agentID)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
 
-    return tx.Commit()
+	return tx.Commit()
+}
+
+// Postpone unassigned orders to the next day
+func postponeOrdersToNextDay(orderIDs []int) error {
+	if len(orderIDs) == 0 {
+		return nil
+	}
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`UPDATE orders SET scheduled_for = $1 WHERE id = $2`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	nextDay := time.Now().Add(24 * time.Hour).Format("2006-01-02")
+	for _, id := range orderIDs {
+		_, err := stmt.Exec(nextDay, id)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
