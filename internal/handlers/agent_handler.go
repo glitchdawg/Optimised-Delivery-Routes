@@ -39,30 +39,29 @@ func GetAgents(c *gin.Context) {
 }
 
 func GetAgentOrders(c *gin.Context) {
-	agentID := c.Param("id")
+    agentID := c.Param("id")
 
-	rows, err := db.DB.Query(`
-        SELECT o.id, o.delivery_address, o.lat, o.lon
+    rows, err := db.DB.Query(`
+        SELECT o.id, o.delivery_address, o.lat, o.lon, a.distance_km, a.estimated_time_minutes
         FROM orders o
         JOIN agent_assignments a ON o.id = a.order_id
         WHERE a.agent_id = $1 AND a.assigned_on = CURRENT_DATE
     `, agentID)
 
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
+    if err != nil {
+        c.JSON(500, gin.H{"error": err.Error()})
+        return
+    }
 
-	var orders []models.Order
-	for rows.Next() {
-		var o models.Order
-		rows.Scan(&o.ID, &o.DeliveryAddress, &o.Lat, &o.Lon)
-		orders = append(orders, o)
-	}
+    var orders []models.Order
+    for rows.Next() {
+        var o models.Order
+        rows.Scan(&o.ID, &o.DeliveryAddress, &o.Lat, &o.Lon, &o.DistanceKM, &o.EstimatedTimeMinutes)
+        orders = append(orders, o)
+    }
 
-	c.JSON(200, orders)
+    c.JSON(200, orders)
 }
-
 func GetAgentPayout(c *gin.Context) {
 	agentID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

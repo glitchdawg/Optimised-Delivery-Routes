@@ -1,3 +1,5 @@
+TRUNCATE warehouses RESTART IDENTITY CASCADE;
+
 
 INSERT INTO warehouses (name, lat, lon)
 SELECT

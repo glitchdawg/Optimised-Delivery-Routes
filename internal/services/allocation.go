@@ -15,7 +15,13 @@ const (
 	AvgSpeedKMPerMin = 0.2 // 1 km in 5 min = 0.2 km/min
 )
 
-// OptimizeRoute uses nearest neighbor to optimize the order of deliveries for an agent
+type AgentCapacity struct {
+	Agent       models.Agent
+	UsedKM      float64
+	UsedMinutes int
+	Orders      []models.Order
+}
+
 func OptimizeRoute(warehouse models.Warehouse, orders []models.Order) []models.Order {
 	if len(orders) == 0 {
 		return orders
@@ -47,136 +53,215 @@ func OptimizeRoute(warehouse models.Warehouse, orders []models.Order) []models.O
 	return route
 }
 
-// func AllocateOrdersForWarehouse(warehouse models.Warehouse) error {
-// 	agents, err := fetchCheckedInAgents(warehouse.ID)
-// 	if err != nil {
-// 		return err
-// 	}
+func calculateRouteMetrics(warehouse models.Warehouse, orders []models.Order) (float64, int) {
+	if len(orders) == 0 {
+		return 0, 0
+	}
 
-// 	orders, err := fetchUnassignedOrders(warehouse.ID)
-// 	if err != nil {
-// 		return err
-// 	}
+	totalDistance := 0.0
+	currLat, currLon := warehouse.Lat, warehouse.Lon
 
-// 	for i := range orders {
-// 		dist := haversine(warehouse.Lat, warehouse.Lon, orders[i].Lat, orders[i].Lon)
-// 		orders[i].DistanceKM = dist
-// 		orders[i].EstimatedTimeMinutes = int(dist / AvgSpeedKMPerMin)
-// 	}
+	totalDistance += haversine(currLat, currLon, orders[0].Lat, orders[0].Lon)
+	
+	for i := 1; i < len(orders); i++ {
+		totalDistance += haversine(orders[i-1].Lat, orders[i-1].Lon, orders[i].Lat, orders[i].Lon)
+	}
+	
+	if len(orders) > 0 {
+		lastOrder := orders[len(orders)-1]
+		totalDistance += haversine(lastOrder.Lat, lastOrder.Lon, warehouse.Lat, warehouse.Lon)
+	}
 
-// 	sortOrdersByDistance(&orders)
+	totalTime := int(totalDistance / AvgSpeedKMPerMin)
+	return totalDistance, totalTime
+}
 
-// 	currOrder := 0
-// 	unassignedOrders := make([]int, 0)
-// 	for _, agent := range agents {
-// 		var usedKM float64
-// 		var usedMinutes int
-// 		var assigned []models.Order
-
-// 		for currOrder < len(orders) {
-// 			o := orders[currOrder]
-// 			if o.Assigned {
-// 				currOrder++
-// 				continue
-// 			}
-
-// 			if usedKM+o.DistanceKM > MaxDistanceKM || usedMinutes+o.EstimatedTimeMinutes > MaxTimeMinutes {
-// 				break
-// 			}
-
-// 			assigned = append(assigned, o)
-// 			usedKM += o.DistanceKM
-// 			usedMinutes += o.EstimatedTimeMinutes
-// 			orders[currOrder].Assigned = true
-// 			currOrder++
-// 		}
-
-// 		// Route optimization for assigned orders
-// 		assigned = OptimizeRoute(warehouse, assigned)
-
-// 		err := saveAssignments(agent.ID, assigned)
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-
-// 	// Capacity handling: postpone unassigned orders to next day
-// 	for i := range orders {
-// 		if !orders[i].Assigned {
-// 			unassignedOrders = append(unassignedOrders, orders[i].ID)
-// 		}
-// 	}
-// 	if len(unassignedOrders) > 0 {
-// 		err := postponeOrdersToNextDay(unassignedOrders)
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-
-// 	return nil
-// }
 func AllocateOrdersForWarehouse(warehouse models.Warehouse) error {
-    agents, err := fetchCheckedInAgents(warehouse.ID)
-    if err != nil {
-        return err
-    }
+	agents, err := fetchCheckedInAgents(warehouse.ID)
+	if err != nil {
+		return err
+	}
 
-    orders, err := fetchUnassignedOrders(warehouse.ID)
-    if err != nil {
-        return err
-    }
+	if len(agents) == 0 {
+		return nil 
+	}
 
-    for i := range orders {
-        dist := haversine(warehouse.Lat, warehouse.Lon, orders[i].Lat, orders[i].Lon)
-        orders[i].DistanceKM = dist
-        orders[i].EstimatedTimeMinutes = int(dist / AvgSpeedKMPerMin)
-    }
+	orders, err := fetchUnassignedOrders(warehouse.ID)
+	if err != nil {
+		return err
+	}
 
-    sortOrdersByDistance(&orders)
+	if len(orders) == 0 {
+		return nil 
+	}
 
-    unassignedOrders := make([]int, 0)
-    for _, agent := range agents {
-        var usedKM float64
-        var usedMinutes int
-        var assigned []models.Order
+	
+	agentCapacities := make([]AgentCapacity, len(agents))
+	for i, agent := range agents {
+		agentCapacities[i] = AgentCapacity{
+			Agent:       agent,
+			UsedKM:      0,
+			UsedMinutes: 0,
+			Orders:      make([]models.Order, 0),
+		}
+	}
 
-        for i := range orders {
-            o := &orders[i]
-            if o.Assigned {
-                continue
-            }
-            if usedKM+o.DistanceKM > MaxDistanceKM || usedMinutes+o.EstimatedTimeMinutes > MaxTimeMinutes {
-                continue
-            }
-            assigned = append(assigned, *o)
-            usedKM += o.DistanceKM
-            usedMinutes += o.EstimatedTimeMinutes
-            o.Assigned = true
-        }
+	for i := range orders {
+		dist := haversine(warehouse.Lat, warehouse.Lon, orders[i].Lat, orders[i].Lon)
+		orders[i].DistanceKM = dist
+		orders[i].EstimatedTimeMinutes = int(dist / AvgSpeedKMPerMin)
+	}
 
-        assigned = OptimizeRoute(warehouse, assigned)
+	sortOrdersByDistance(&orders)
 
-        if len(assigned) > 0 {
-            err := saveAssignments(agent.ID, assigned)
-            if err != nil {
-                return err
-            }
-        }
-    }
+	unassignedOrders := make([]int, 0)
+	orderIndex := 0
+	
+	for orderIndex < len(orders) {
+		assignedInThisRound := false
+		
+		for agentIdx := range agentCapacities {
+			if orderIndex >= len(orders) {
+				break
+			}
+			
+			order := orders[orderIndex]
+			if order.Assigned {
+				orderIndex++
+				continue
+			}
+			
+			testOrders := append(agentCapacities[agentIdx].Orders, order)
+			totalDist, totalTime := calculateRouteMetrics(warehouse, testOrders)
+			
+			if totalDist <= MaxDistanceKM && totalTime <= MaxTimeMinutes {
+				agentCapacities[agentIdx].Orders = testOrders
+				agentCapacities[agentIdx].UsedKM = totalDist
+				agentCapacities[agentIdx].UsedMinutes = totalTime
+				orders[orderIndex].Assigned = true
+				assignedInThisRound = true
+				orderIndex++
+			} else {
+				
+				continue
+			}
+		}
+		
+		if !assignedInThisRound {
+			if orderIndex < len(orders) && !orders[orderIndex].Assigned {
+				orderIndex++
+			}
+		}
+	}
 
-    for i := range orders {
-        if !orders[i].Assigned {
-            unassignedOrders = append(unassignedOrders, orders[i].ID)
-        }
-    }
-    if len(unassignedOrders) > 0 {
-        err := postponeOrdersToNextDay(unassignedOrders)
-        if err != nil {
-            return err
-        }
-    }
+	for _, agentCap := range agentCapacities {
+		if len(agentCap.Orders) > 0 {
+			optimizedOrders := OptimizeRoute(warehouse, agentCap.Orders)
+			err := saveAssignments(agentCap.Agent.ID, optimizedOrders)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
-    return nil
+	for i := range orders {
+		if !orders[i].Assigned {
+			unassignedOrders = append(unassignedOrders, orders[i].ID)
+		}
+	}
+
+	if len(unassignedOrders) > 0 {
+		err := postponeOrdersToNextDay(unassignedOrders)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+//Balanced load distribution
+func AllocateOrdersBalanced(warehouse models.Warehouse) error {
+	agents, err := fetchCheckedInAgents(warehouse.ID)
+	if err != nil {
+		return err
+	}
+
+	if len(agents) == 0 {
+		return nil
+	}
+
+	orders, err := fetchUnassignedOrders(warehouse.ID)
+	if err != nil {
+		return err
+	}
+
+	if len(orders) == 0 {
+		return nil
+	}
+
+	for i := range orders {
+		dist := haversine(warehouse.Lat, warehouse.Lon, orders[i].Lat, orders[i].Lon)
+		orders[i].DistanceKM = dist
+		orders[i].EstimatedTimeMinutes = int(dist / AvgSpeedKMPerMin)
+	}
+
+	sortOrdersByDistance(&orders)
+
+	agentCapacities := make([]AgentCapacity, len(agents))
+	for i, agent := range agents {
+		agentCapacities[i] = AgentCapacity{
+			Agent:       agent,
+			UsedKM:      0,
+			UsedMinutes: 0,
+			Orders:      make([]models.Order, 0),
+		}
+	}
+
+	unassignedOrders := make([]int, 0)
+	for _, order := range orders {
+		assigned := false
+		
+		sort.Slice(agentCapacities, func(i, j int) bool {
+			return len(agentCapacities[i].Orders) < len(agentCapacities[j].Orders)
+		})
+		
+		for agentIdx := range agentCapacities {
+			testOrders := append(agentCapacities[agentIdx].Orders, order)
+			totalDist, totalTime := calculateRouteMetrics(warehouse, testOrders)
+			
+			if totalDist <= MaxDistanceKM && totalTime <= MaxTimeMinutes {
+				agentCapacities[agentIdx].Orders = testOrders
+				agentCapacities[agentIdx].UsedKM = totalDist
+				agentCapacities[agentIdx].UsedMinutes = totalTime
+				assigned = true
+				break
+			}
+		}
+		
+		if !assigned {
+			unassignedOrders = append(unassignedOrders, order.ID)
+		}
+	}
+
+	for _, agentCap := range agentCapacities {
+		if len(agentCap.Orders) > 0 {
+			optimizedOrders := OptimizeRoute(warehouse, agentCap.Orders)
+			err := saveAssignments(agentCap.Agent.ID, optimizedOrders)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(unassignedOrders) > 0 {
+		err := postponeOrdersToNextDay(unassignedOrders)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
@@ -282,7 +367,6 @@ func saveAssignments(agentID int, orders []models.Order) error {
 	return tx.Commit()
 }
 
-// Postpone unassigned orders to the next day
 func postponeOrdersToNextDay(orderIDs []int) error {
 	if len(orderIDs) == 0 {
 		return nil

@@ -40,15 +40,5 @@ func CalculatePayoutForAgent(agentID int) (*models.Payout, error) {
         TotalPay:      pay,
     }
 
-    _, err := db.DB.Exec(`
-        INSERT INTO agent_payouts (agent_id, date, total_orders, total_distance, total_pay)
-        VALUES ($1, CURRENT_DATE, $2, $3, $4)
-        ON CONFLICT (agent_id, date)
-        DO UPDATE SET total_orders = $2, total_distance = $3, total_pay = $4
-    `, agentID, totalOrders, totalDistance, pay)
-    if err != nil {
-        return nil, err
-    }
-
     return payout, nil
 }
