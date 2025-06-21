@@ -60,7 +60,43 @@ A full-stack delivery management system built with Go (Gin) for the backend and 
 
     The frontend will start on http://localhost:5173.
 
+## Implementation
+**Backend**:
+Developed in Go using the Gin web framework. .
+
+**Frontend**:
+Built with Vue.js and Vite for a fast, reactive user interface.
+
+**Database**:
+PostgreSQL is used as the relational database, storing all core data such as users, deliveries, and statuses.
+
+![Vue Site](image.png)
 
 
+we can use the `place warehouse on map` and `place order on map` to put warehouses and orders on the map, and these will get synced to the db. We can also add agents using the form.
 
 
+![alt text](image-2.png)
+
+**Algorithm**
+The backend uses a modified **round-robin algorithm** for even allotment of orders to agents, minimising the cost incurred.
+Alternatively I have also written a **least loaded algorithm** that we can switch to, for better individual utilisation of agents.
+
+## Testing
+
+> There is a `internal/db/seed.sql` file in the repo, that we have written to seed test data into our database. It generates -
+- **60** **orders** in a day/agent
+- **20 agents** per warehouse
+- **10 warehouses** around New Delhi (Arbitrarily chosen city).
+
+![alt text](image-3.png)
+- The map render after seeding using our script
+
+Now we can click `Allocate orders` button to allocate these orders
+![alt text](image-4.png)
+
+UI will give us the metrics at the bottom of the page
+![alt text](image-7.png)
+We can scrolling for metrics on orders
+
+![alt text](image-6.png)
