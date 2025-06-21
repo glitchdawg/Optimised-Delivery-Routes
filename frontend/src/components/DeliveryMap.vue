@@ -19,8 +19,10 @@
       <input v-model.number="newWarehouse.lat" placeholder="Latitude" required type="number" step="any" />
       <input v-model.number="newWarehouse.lon" placeholder="Longitude" required type="number" step="any" />
       <button type="submit">Add Warehouse</button>
+      <div v-if="newWarehouse.lat && newWarehouse.lon" style="margin-top:0.5em; color: #333;">
+        <b>Selected Location:</b> {{ newWarehouse.lat }}, {{ newWarehouse.lon }}
+      </div>
     </form>
-    
 
     <!-- Agent Creation Form -->
     <form @submit.prevent="createAgent" style="margin-bottom: 1em;">
@@ -44,6 +46,9 @@
       <input v-model.number="newOrder.lat" placeholder="Latitude" required type="number" step="any" />
       <input v-model.number="newOrder.lon" placeholder="Longitude" required type="number" step="any" />
       <button type="submit">Add Order</button>
+      <div v-if="newOrder.lat && newOrder.lon" style="margin-top:0.5em; color: #333;">
+        <b>Selected Location:</b> {{ newOrder.lat }}, {{ newOrder.lon }}
+      </div>
     </form>
 
     <div id="map" style="height: 500px; margin-bottom: 2em;"></div>
@@ -125,16 +130,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import L from 'leaflet'
 import axios from 'axios'
 
 const warehouses = ref([])
 const agents = ref([])
 const orders = ref([])
-const payouts = ref({}) // { agentId: payout }
-const agentOrders = ref({}) // { agentId: [orders] }
-const agentDistances = ref({}) // { agentId: totalDistance }
+const payouts = ref({})
+const agentOrders = ref({})
+const agentDistances = ref({})
 let map
 
 const placementMode = ref(null)
@@ -158,30 +163,9 @@ const agentNameById = (id) => {
   return agent ? agent.name : id
 }
 
-const initMap = async () => {
-  await nextTick()
-  if (!map) {
-    map = L.map('map').setView([28.6139, 77.2090], 11)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map)
-
-    map.on('click', (e) => {
-      if (placementMode.value === 'warehouse') {
-        newWarehouse.value.lat = e.latlng.lat
-        newWarehouse.value.lon = e.latlng.lng
-        placementMode.value = null
-      } else if (placementMode.value === 'order') {
-        newOrder.value.lat = e.latlng.lat
-        newOrder.value.lon = e.latlng.lng
-        placementMode.value = null
-      }
-    })
-  }
-}
-
 const renderMap = () => {
   if (!map) return
+  // Remove only markers and circle markers, not the tile layer
   map.eachLayer(layer => {
     if (layer instanceof L.Marker || layer instanceof L.CircleMarker) map.removeLayer(layer)
   })
@@ -195,28 +179,32 @@ const renderMap = () => {
       })
     })
       .addTo(map)
-      .bindPopup(`<b>Warehouse:</b> ${w.name}`)
+      .bindPopup(`<b>Warehouse:</b> ${w.name}<br>Lat: ${w.lat}<br>Lon: ${w.lon}`)
   })
 
   // Orders
   orders.value.forEach(o => {
     L.circleMarker([o.lat, o.lon], { color: o.assigned ? 'green' : 'red', radius: 8 })
       .addTo(map)
-      .bindPopup(`<b>Order:</b> ${o.delivery_address}<br>Assigned: ${o.assigned ? 'Yes' : 'No'}`)
+      .bindPopup(`<b>Order:</b> ${o.delivery_address}<br>Assigned: ${o.assigned ? 'Yes' : 'No'}<br>Lat: ${o.lat}<br>Lon: ${o.lon}`)
   })
 }
 
 const fetchAll = async () => {
   try {
-    warehouses.value = (await axios.get('/warehouses')).data
-    agents.value = (await axios.get('/agents')).data
-    orders.value = (await axios.get('/orders')).data
+    const w = (await axios.get('/warehouses')).data
+    const a = (await axios.get('/agents')).data
+    const o = (await axios.get('/orders')).data
+    warehouses.value = Array.isArray(w) ? w : []
+    agents.value = Array.isArray(a) ? a : []
+    orders.value = Array.isArray(o) ? o : []
     await fetchAgentOrdersAndDistances()
     await fetchAllPayouts()
+    await nextTick()
+    renderMap()
   } catch (e) {
     console.error(e)
   }
-  renderMap()
 }
 
 const allocateOrders = async () => {
@@ -244,7 +232,6 @@ const fetchAgentOrdersAndDistances = async () => {
     try {
       const agentOrdersRes = await axios.get(`/agents/${agent.id}/orders`)
       ordersMap[agent.id] = agentOrdersRes.data || []
-      // Calculate total distance for agent
       let totalDist = 0
       for (const o of agentOrdersRes.data) {
         if (o.distance_km) {
@@ -268,7 +255,7 @@ const createWarehouse = async () => {
     lon: newWarehouse.value.lon
   })
   newWarehouse.value = { name: '', lat: '', lon: '' }
-  fetchAll()
+  await fetchAll()
 }
 
 const createAgent = async () => {
@@ -277,7 +264,7 @@ const createAgent = async () => {
     warehouse_id: newAgent.value.warehouse_id || null
   })
   newAgent.value = { name: '', warehouse_id: '' }
-  fetchAll()
+  await fetchAll()
 }
 
 const createOrder = async () => {
@@ -288,11 +275,40 @@ const createOrder = async () => {
     lon: newOrder.value.lon
   })
   newOrder.value = { warehouse_id: '', delivery_address: '', lat: '', lon: '' }
-  fetchAll()
+  await fetchAll()
 }
+
+const initMap = async () => {
+  await nextTick()
+  if (!map) {
+    map = L.map('map').setView([28.6139, 77.2090], 11)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map)
+
+    map.on('click', (e) => {
+      if (placementMode.value === 'warehouse') {
+        newWarehouse.value.lat = Number(e.latlng.lat.toFixed(6))
+        newWarehouse.value.lon = Number(e.latlng.lng.toFixed(6))
+        placementMode.value = null
+      } else if (placementMode.value === 'order') {
+        newOrder.value.lat = Number(e.latlng.lat.toFixed(6))
+        newOrder.value.lon = Number(e.latlng.lng.toFixed(6))
+        placementMode.value = null
+      }
+    })
+  }
+  await nextTick()
+  renderMap()
+}
+
+// Re-render map if warehouses or orders change and map is ready
+watch([warehouses, orders], () => {
+  if (map) nextTick().then(renderMap)
+})
 
 onMounted(async () => {
   await initMap()
-  fetchAll()
+  await fetchAll()
 })
 </script>
