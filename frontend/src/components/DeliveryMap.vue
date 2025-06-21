@@ -217,7 +217,7 @@ const fetchAllPayouts = async () => {
   for (const agent of agents.value) {
     try {
       const payout = (await axios.get(`/agents/${agent.id}/payout`)).data
-      payoutMap[agent.id] = payout.totalPay || 0
+      payoutMap[agent.id] = payout.total_pay || 0
     } catch {
       payoutMap[agent.id] = 0
     }
