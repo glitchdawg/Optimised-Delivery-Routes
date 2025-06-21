@@ -78,7 +78,7 @@ we can use the `place warehouse on map` and `place order on map` to put warehous
 
 ![alt text](images/image-2.png)
 
-**Algorithm**
+## **Algorithm**
 The backend uses a modified **round-robin algorithm** for even allotment of orders to agents, minimising the cost incurred.
 
 **Key Characteristics:**
@@ -92,9 +92,9 @@ Alternatively I have also written a **least loaded algorithm** that we can switc
 
 **Key Characteristics:**
 
-Always prioritizes agent with fewest current orders
-Maximizes individual agent utilization
-Better for reaching higher payout tiers (25+, 50+ orders)
+- Always prioritizes agent with fewest current orders
+- Maximizes individual agent utilization
+- Better for reaching higher payout tiers (25+, 50+ orders)
 
 ## Testing
 
